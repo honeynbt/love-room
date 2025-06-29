@@ -4,9 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>LoveRoom 💖</title>
+
+  <!-- Libraries -->
   <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@joeattardi/emoji-button@4.6.4/dist/index.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+
   <style>
     body {
       background: linear-gradient(to right, #ffafbd, #ffc3a0);
@@ -15,32 +19,112 @@
       border: 4px solid #f472b6;
       border-radius: 1rem;
     }
+    @media (max-width: 768px) {
+      #video-grid {
+        flex-direction: column;
+      }
+      #video-grid video {
+        width: 100%;
+      }
+    }
+    #myVideo.mirrored {
+      transform: scaleX(-1);
+    }
+    #reactionOverlay {
+      animation: fadeOut 2s ease-in-out forwards;
+    }
+    @keyframes fadeOut {
+      0% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(2); }
+    }
   </style>
 </head>
+
 <body class="flex flex-col items-center justify-center min-h-screen px-4">
   <h1 class="text-4xl font-bold text-white mb-6">💞 Welcome to LoveRoom</h1>
+
   <div class="bg-white p-6 rounded-2xl shadow-xl w-full max-w-2xl">
+
+    <!-- Chat -->
     <div id="chat-container" class="mb-4 max-h-60 overflow-y-auto">
       <div id="messages" class="space-y-2 text-gray-700"></div>
     </div>
-    <form id="chat-form" class="flex space-x-2">
+
+    <form id="chat-form" class="flex space-x-2 items-center">
+      <button id="emoji-btn" type="button" class="text-2xl">😊</button>
       <input id="chat-input" type="text" placeholder="Say something..." class="flex-1 p-2 border rounded-xl" required />
       <button type="submit" class="bg-pink-500 text-white px-4 py-2 rounded-xl">Send</button>
     </form>
-    <div id="video-grid" class="mt-6 flex space-x-4 justify-center">
-      <video id="myVideo" autoplay muted playsinline class="w-1/2"></video>
-      <video id="partnerVideo" autoplay playsinline class="w-1/2"></video>
+
+    <!-- Video -->
+    <div id="video-grid" class="relative w-full mt-6">
+  <!-- Partner's Video (fullscreen) -->
+  <video id="partnerVideo" autoplay playsinline class="w-full h-auto rounded-xl shadow-lg"></video>
+
+  <!-- Your own video (small floating) -->
+  <video id="myVideo" autoplay muted playsinline 
+    class="absolute bottom-4 right-4 w-32 h-32 rounded-xl border-4 border-white shadow-lg object-cover z-10">
+  </video>
+</div>
+
+
+    <!-- Controls -->
+    <div class="mt-4 flex flex-wrap justify-center space-x-4">
+      <button id="micToggle" class="bg-red-400 text-white px-4 py-2 rounded-xl hover:bg-red-600">
+        🔇 Mute Mic
+      </button>
+      <button id="camToggle" class="bg-blue-400 text-white px-4 py-2 rounded-xl hover:bg-blue-600">
+        📷 Turn Off Camera
+      </button>
+      <button id="flipCam" class="bg-purple-400 text-white px-4 py-2 rounded-xl hover:bg-purple-600">
+        🔄 Flip Camera
+      </button>
+      <button id="heartBtn" class="bg-pink-500 text-white px-4 py-2 rounded-xl hover:bg-pink-700 text-xl">
+        💓 Send Heart
+      </button>
+      <button id="kissBtn" class="bg-red-500 text-white px-4 py-2 rounded-xl hover:bg-red-700 text-xl">
+        💋 Send Kiss
+      </button>
     </div>
   </div>
+
+  <!-- Emoji/Reaction Overlay -->
+  <div id="reactionOverlay" class="fixed top-0 left-0 w-full h-full pointer-events-none flex items-center justify-center text-7xl z-50 hidden"></div>
+
+  <!-- Scripts -->
   <script>
     const roomId = window.location.pathname.split("/").pop();
     const socket = io();
-    socket.emit("join-room", roomId);
-    const messages = document.getElementById("messages");
+
     const chatForm = document.getElementById("chat-form");
     const chatInput = document.getElementById("chat-input");
+    const messages = document.getElementById("messages");
+    const reactionOverlay = document.getElementById("reactionOverlay");
     const secretKey = "loveKey123!@#";
 
+    const myVideo = document.getElementById("myVideo");
+    const partnerVideo = document.getElementById("partnerVideo");
+
+    let localStream;
+    let micEnabled = true;
+    let camEnabled = true;
+    let currentFacing = "user";
+    let isOfferer = false;
+
+    // Emoji Picker
+    const emojiBtn = document.getElementById("emoji-btn");
+    const picker = new EmojiButton({ theme: 'light', position: 'top-start' });
+    emojiBtn.addEventListener("click", () => picker.togglePicker(emojiBtn));
+    picker.on("emoji", emoji => {
+      chatInput.value += emoji;
+      chatInput.focus();
+    });
+
+    // Room password
+    const roomPassword = prompt("🔐 Enter room password:");
+    socket.emit("join-room", { roomId, password: roomPassword });
+
+    // Chat
     chatForm.addEventListener("submit", (e) => {
       e.preventDefault();
       const msg = chatInput.value.trim();
@@ -56,7 +140,7 @@
       try {
         const decrypted = CryptoJS.AES.decrypt(message, secretKey).toString(CryptoJS.enc.Utf8);
         addMessage("Partner", decrypted);
-      } catch (e) {
+      } catch {
         addMessage("System", "Failed to decrypt message.");
       }
     });
@@ -68,79 +152,148 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
+    // Reaction Handling
+    document.getElementById("heartBtn").addEventListener("click", () => {
+      socket.emit("reaction", { roomId, type: "heart" });
+    });
+
+    document.getElementById("kissBtn").addEventListener("click", () => {
+      socket.emit("reaction", { roomId, type: "kiss" });
+    });
+
+    socket.on("reaction", ({ type }) => {
+      const emoji = type === "heart" ? "💓" : "💋";
+      reactionOverlay.innerText = emoji;
+      reactionOverlay.classList.remove("hidden");
+      void reactionOverlay.offsetWidth;
+      reactionOverlay.style.animation = "fadeOut 2s ease-in-out forwards";
+      setTimeout(() => reactionOverlay.classList.add("hidden"), 2000);
+    });
+
+    // Errors
+    socket.on("wrong-password", () => {
+      alert("❌ Wrong password! Access denied.");
+      window.location.href = "/";
+    });
+
     socket.on("partner-left", () => {
       addMessage("System", "Your partner has left the chat.");
     });
 
-    let isOfferer = false;
-
-const myVideo = document.getElementById("myVideo");
-const partnerVideo = document.getElementById("partnerVideo");
-const peerConnection = new RTCPeerConnection({
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" } // Public STUN server
-  ]
-});
-
-navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-  myVideo.srcObject = stream;
-  stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-});
-
-// Incoming offer
-socket.on("offer", async (offer) => {
-  isOfferer = false;
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answer);
-  socket.emit("answer", { roomId, answer });
-});
-
-// Incoming answer
-socket.on("answer", async ({ answer }) => {
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-});
-
-// ICE candidates
-peerConnection.onicecandidate = (event) => {
-  if (event.candidate) {
-    socket.emit("ice", { roomId, candidate: event.candidate });
-  }
-};
-
-socket.on("ice", async ({ candidate }) => {
-  try {
-    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-  } catch (err) {
-    console.error("Failed to add ICE Candidate:", err);
-  }
-});
-
-// Attach remote stream
-peerConnection.ontrack = (event) => {
-  if (!partnerVideo.srcObject) {
-    partnerVideo.srcObject = event.streams[0];
-  }
-};
-
-// Only one person should start the call
-socket.on("ready", () => {
-  if (!isOfferer) {
-    isOfferer = true;
-    startCall();
-  }
-});
-
-function startCall() {
-  peerConnection.createOffer()
-    .then(offer => peerConnection.setLocalDescription(offer))
-    .then(() => {
-      socket.emit("offer", { roomId, offer: peerConnection.localDescription });
+    // WebRTC Setup
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
     });
-}
 
-// Notify server when ready
-socket.emit("ready", roomId);  
-</script>
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacing },
+      audio: true
+    }).then(stream => {
+      localStream = stream;
+      myVideo.srcObject = stream;
+
+      const facing = stream.getVideoTracks()[0].getSettings().facingMode;
+      if (facing === "user") {
+        myVideo.classList.add("mirrored");
+      }
+
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+    });
+
+    // Mic / Cam Toggle
+    document.getElementById("micToggle").addEventListener("click", () => {
+      micEnabled = !micEnabled;
+      localStream.getAudioTracks().forEach(track => track.enabled = micEnabled);
+      document.getElementById("micToggle").innerText = micEnabled ? "🔇 Mute Mic" : "🎙️ Unmute Mic";
+    });
+
+    document.getElementById("camToggle").addEventListener("click", () => {
+      camEnabled = !camEnabled;
+      localStream.getVideoTracks().forEach(track => track.enabled = camEnabled);
+      document.getElementById("camToggle").innerText = camEnabled ? "📷 Turn Off Camera" : "🎥 Turn On Camera";
+    });
+
+    document.getElementById("flipCam").addEventListener("click", async () => {
+      currentFacing = currentFacing === "user" ? "environment" : "user";
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (videoTrack) videoTrack.stop();
+
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacing },
+          audio: true
+        });
+
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        const sender = peerConnection.getSenders().find(s => s.track.kind === "video");
+        if (sender) sender.replaceTrack(newVideoTrack);
+
+        localStream.removeTrack(videoTrack);
+        localStream.addTrack(newVideoTrack);
+        myVideo.srcObject = newStream;
+
+        const facing = newVideoTrack.getSettings().facingMode;
+        if (facing === "user") {
+          myVideo.classList.add("mirrored");
+        } else {
+          myVideo.classList.remove("mirrored");
+        }
+
+        localStream = newStream;
+      } catch (err) {
+        alert("Camera switch failed: " + err.message);
+      }
+    });
+
+    // WebRTC Signaling
+    socket.on("offer", async (offer) => {
+      isOfferer = false;
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+      socket.emit("answer", { roomId, answer });
+    });
+
+    socket.on("answer", async ({ answer }) => {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    peerConnection.onicecandidate = (event) => {
+      if (event.candidate) {
+        socket.emit("ice", { roomId, candidate: event.candidate });
+      }
+    };
+
+    socket.on("ice", async ({ candidate }) => {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error("Failed to add ICE Candidate:", err);
+      }
+    });
+
+    peerConnection.ontrack = (event) => {
+      if (!partnerVideo.srcObject) {
+        partnerVideo.srcObject = event.streams[0];
+      }
+    };
+
+    socket.on("ready", () => {
+      if (!isOfferer) {
+        isOfferer = true;
+        startCall();
+      }
+    });
+
+    function startCall() {
+      peerConnection.createOffer()
+        .then(offer => peerConnection.setLocalDescription(offer))
+        .then(() => {
+          socket.emit("offer", { roomId, offer: peerConnection.localDescription });
+        });
+    }
+
+    socket.emit("ready", roomId);
+  </script>
 </body>
 </html>
