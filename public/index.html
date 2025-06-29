@@ -72,52 +72,75 @@
       addMessage("System", "Your partner has left the chat.");
     });
 
-    const myVideo = document.getElementById("myVideo");
-    const partnerVideo = document.getElementById("partnerVideo");
-    const peerConnection = new RTCPeerConnection();
+    let isOfferer = false;
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-      .then(stream => {
-        myVideo.srcObject = stream;
-        stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-      });
+const myVideo = document.getElementById("myVideo");
+const partnerVideo = document.getElementById("partnerVideo");
+const peerConnection = new RTCPeerConnection({
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" } // Public STUN server
+  ]
+});
 
-    socket.on("offer", async (offer) => {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-      socket.emit("answer", { roomId, answer });
-    });
+navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
+  myVideo.srcObject = stream;
+  stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+});
 
-    socket.on("answer", async ({ answer }) => {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-    });
+// Incoming offer
+socket.on("offer", async (offer) => {
+  isOfferer = false;
+  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+  const answer = await peerConnection.createAnswer();
+  await peerConnection.setLocalDescription(answer);
+  socket.emit("answer", { roomId, answer });
+});
 
-    socket.on("ice", async ({ candidate }) => {
-      try {
-        await peerConnection.addIceCandidate(candidate);
-      } catch (err) {
-        console.error(err);
-      }
-    });
+// Incoming answer
+socket.on("answer", async ({ answer }) => {
+  await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+});
 
-    peerConnection.onicecandidate = (event) => {
-      if (event.candidate) {
-        socket.emit("ice", { roomId, candidate: event.candidate });
-      }
-    };
+// ICE candidates
+peerConnection.onicecandidate = (event) => {
+  if (event.candidate) {
+    socket.emit("ice", { roomId, candidate: event.candidate });
+  }
+};
 
-    peerConnection.ontrack = (event) => {
-      partnerVideo.srcObject = event.streams[0];
-    };
+socket.on("ice", async ({ candidate }) => {
+  try {
+    await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+  } catch (err) {
+    console.error("Failed to add ICE Candidate:", err);
+  }
+});
 
-    async function startCall() {
-      const offer = await peerConnection.createOffer();
-      await peerConnection.setLocalDescription(offer);
-      socket.emit("offer", { roomId, offer });
-    }
+// Attach remote stream
+peerConnection.ontrack = (event) => {
+  if (!partnerVideo.srcObject) {
+    partnerVideo.srcObject = event.streams[0];
+  }
+};
 
+// Only one person should start the call
+socket.on("ready", () => {
+  if (!isOfferer) {
+    isOfferer = true;
     startCall();
-  </script>
+  }
+});
+
+function startCall() {
+  peerConnection.createOffer()
+    .then(offer => peerConnection.setLocalDescription(offer))
+    .then(() => {
+      socket.emit("offer", { roomId, offer: peerConnection.localDescription });
+    });
+}
+
+// Notify server when ready
+socket.emit("ready", roomId);  
+</script>
 </body>
 </html>

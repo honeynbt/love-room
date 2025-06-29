@@ -43,6 +43,11 @@ io.on("connection", (socket) => {
       socket.to(roomId).emit("ice", { candidate });
     });
 
+    socket.on("ready", (roomId) => {
+      socket.to(roomId).emit("ready");
+    });
+
+
     socket.on("disconnect", () => {
       console.log(`User disconnected: ${socket.id}`);
       if (roomUsers[roomId]) {
