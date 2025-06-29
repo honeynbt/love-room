@@ -106,6 +106,10 @@ io.on("connection", (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
+app.get("/", (req, res) => {
+  res.redirect("/room" + Math.floor(Math.random() * 10000));
+});
+
 server.listen(PORT, () => {
   console.log(`💖 LoveRoom server running at http://localhost:${PORT}`);
 });
