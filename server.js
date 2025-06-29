@@ -54,7 +54,7 @@ io.on("connection", (socket) => {
 
     // Notify existing users
     if (io.sockets.adapter.rooms.get(roomId)?.size === 2) {
-      socket.to(roomId).emit("ready");
+      io.to(roomId).emit("ready");
     }
   });
 
@@ -85,11 +85,6 @@ io.on("connection", (socket) => {
 
   socket.on("stop-typing", (roomId) => {
     socket.to(roomId).emit("stop-typing");
-  });
-
-  socket.on("check-room", (roomId, callback) => {
-    const room = io.sockets.adapter.rooms.get(roomId);
-    callback(room ? { size: room.size } : null);
   });
 
   socket.on("ready", (roomId) => {

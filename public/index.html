@@ -231,6 +231,7 @@
     let micEnabled = true;
     let camEnabled = true;
     let currentFacing = "user";
+    let isCaller = false;
 
     // Get user media
     navigator.mediaDevices.getUserMedia({
@@ -246,7 +247,7 @@
         peerConnection.addTrack(track, stream);
       });
       
-      // Emit ready after media is obtained
+      // Signal that we're ready
       socket.emit("ready", roomId);
     }).catch(err => {
       console.error("Media access error:", err);
@@ -266,21 +267,8 @@
       }
     };
 
-    socket.on("ice", async ({ candidate }) => {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error("Error adding ICE candidate:", err);
-      }
-    });
-
-    socket.on("ready", async () => {
-      // Only create offer if we're the first user in the room
-      const room = await new Promise(resolve => {
-        socket.emit("check-room", roomId, resolve);
-      });
-      
-      if (room && room.size === 1 && peerConnection.signalingState === "stable") {
+    peerConnection.onnegotiationneeded = async () => {
+      if (isCaller) {
         try {
           const offer = await peerConnection.createOffer();
           await peerConnection.setLocalDescription(offer);
@@ -289,11 +277,24 @@
           console.error("Error creating offer:", err);
         }
       }
+    };
+
+    socket.on("ice", async ({ candidate }) => {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error("Error adding ICE candidate:", err);
+      }
     });
 
-    socket.on("check-room", (roomId, callback) => {
+    // Handle ready event - determine who initiates call
+    socket.on("ready", () => {
       const room = io.sockets.adapter.rooms.get(roomId);
-      callback(room ? { size: room.size } : null);
+      if (room.size === 2) {
+        // First user to join becomes caller
+        const [firstUser] = room;
+        isCaller = socket.id === firstUser;
+      }
     });
 
     socket.on("offer", async (offer) => {
