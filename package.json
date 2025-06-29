@@ -1,7 +1,7 @@
 {
-  "name": "love-room",
+  "name": "loveroom",
   "version": "1.0.0",
-  "description": "Private Chat + Video Calling App",
+  "description": "Private chat and video call web app for couples",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
