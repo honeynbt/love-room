@@ -72,6 +72,11 @@ io.on("connection", (socket) => {
       }
     }
   });
+
+  socket.on("reaction", ({ roomId, type }) => {
+  socket.to(roomId).emit("reaction", { type });
+});
+
 });
 
 const PORT = process.env.PORT || 3000;
