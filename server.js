@@ -7,7 +7,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   connectionStateRecovery: {
-    maxDisconnectionDuration: 2 * 60 * 1000 // 2 minutes
+    maxDisconnectionDuration: 2 * 60 * 1000
   }
 });
 
@@ -15,33 +15,29 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const roomPasswords = new Map();
 
-// Password cleanup
+// Password expiry cleanup
 setInterval(() => {
   const now = Date.now();
   for (const [roomId, data] of roomPasswords) {
-    if (data.expires < now) {
-      roomPasswords.delete(roomId);
-    }
+    if (data.expires < now) roomPasswords.delete(roomId);
   }
-}, 60 * 60 * 1000); // Hourly cleanup
+}, 60 * 60 * 1000);
 
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
-
   socket.on("join-room", ({ roomId, password }) => {
-    // Room capacity check
     const room = io.sockets.adapter.rooms.get(roomId);
-    if (room && room.size >= 2) {
+    const numClients = room ? room.size : 0;
+
+    if (numClients >= 2) {
       socket.emit("room-full");
       return;
     }
 
-    // Password handling
     const roomData = roomPasswords.get(roomId);
     if (!roomData) {
       roomPasswords.set(roomId, {
         password,
-        expires: Date.now() + 24 * 60 * 60 * 1000 // 24h expiration
+        expires: Date.now() + 24 * 60 * 60 * 1000
       });
     } else if (roomData.password !== password) {
       socket.emit("wrong-password");
@@ -50,15 +46,14 @@ io.on("connection", (socket) => {
 
     socket.join(roomId);
     socket.roomId = roomId;
-    console.log(`User ${socket.id} joined ${roomId}`);
 
-    // Notify existing users
-    if (io.sockets.adapter.rooms.get(roomId)?.size === 2) {
-      io.to(roomId).emit("ready");
+    if (numClients === 0) {
+      socket.emit("init-host");
+    } else {
+      socket.to(roomId).emit("init-host");
     }
   });
 
-  // Event handlers
   socket.on("chat", ({ roomId, message }) => {
     socket.to(roomId).emit("chat", { message });
   });
@@ -87,10 +82,6 @@ io.on("connection", (socket) => {
     socket.to(roomId).emit("stop-typing");
   });
 
-  socket.on("ready", (roomId) => {
-    socket.to(roomId).emit("ready");
-  });
-
   socket.on("leave-room", (roomId) => {
     socket.leave(roomId);
     socket.to(roomId).emit("partner-left");
@@ -98,14 +89,12 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     if (socket.roomId) {
-      const roomId = socket.roomId;
-      socket.to(roomId).emit("partner-left");
-      console.log(`User ${socket.id} left ${roomId}`);
+      socket.to(socket.roomId).emit("partner-left");
     }
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`💖 LoveRoom server running at http://localhost:${PORT}`);
+  console.log(`💖 LoveRoom running at http://localhost:${PORT}`);
 });

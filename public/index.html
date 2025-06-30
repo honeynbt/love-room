@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>LoveRoom 💖</title>
   <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
@@ -15,8 +15,8 @@
       #video-grid video { width: 100%; }
     }
     #myVideo.mirrored { transform: scaleX(-1); }
-    #reactionOverlay { 
-      animation: fadeOut 2s ease-in-out forwards; 
+    #reactionOverlay {
+      animation: fadeOut 2s ease-in-out forwards;
       text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
     }
     @keyframes fadeOut {
@@ -29,20 +29,9 @@
       border-radius: 18px;
       margin-bottom: 8px;
     }
-    .my-message {
-      background-color: #d1f0ff;
-      align-self: flex-end;
-    }
-    .partner-message {
-      background-color: #f0f0f0;
-      align-self: flex-start;
-    }
-    #typingIndicator {
-      display: none;
-      font-style: italic;
-      color: #888;
-      margin-top: 4px;
-    }
+    .my-message { background-color: #d1f0ff; align-self: flex-end; }
+    .partner-message { background-color: #f0f0f0; align-self: flex-start; }
+    #typingIndicator { display: none; font-style: italic; color: #888; margin-top: 4px; }
   </style>
 </head>
 <body class="flex flex-col items-center justify-center min-h-screen px-4">
@@ -63,24 +52,14 @@
     </div>
 
     <div class="mt-4 flex justify-center space-x-4">
-      <button id="micToggle" class="bg-red-400 text-white px-4 py-2 rounded-xl hover:bg-red-600 transition">
-        🔇 Mute Mic
-      </button>
-      <button id="camToggle" class="bg-blue-400 text-white px-4 py-2 rounded-xl hover:bg-blue-600 transition">
-        📷 Turn Off Camera
-      </button>
-      <button id="flipCam" class="bg-purple-400 text-white px-4 py-2 rounded-xl hover:bg-purple-600 transition">
-        🔄 Flip Camera
-      </button>
+      <button id="micToggle" class="bg-red-400 text-white px-4 py-2 rounded-xl hover:bg-red-600 transition">🔇 Mute Mic</button>
+      <button id="camToggle" class="bg-blue-400 text-white px-4 py-2 rounded-xl hover:bg-blue-600 transition">📷 Turn Off Camera</button>
+      <button id="flipCam" class="bg-purple-400 text-white px-4 py-2 rounded-xl hover:bg-purple-600 transition">🔄 Flip Camera</button>
     </div>
 
     <div class="mt-4 flex justify-center space-x-4">
-      <button id="heartBtn" class="bg-pink-500 text-white px-4 py-2 rounded-xl hover:bg-pink-700 text-xl transition">
-        💓 Send Heart
-      </button>
-      <button id="kissBtn" class="bg-red-500 text-white px-4 py-2 rounded-xl hover:bg-red-700 text-xl transition">
-        💋 Send Kiss
-      </button>
+      <button id="heartBtn" class="bg-pink-500 text-white px-4 py-2 rounded-xl hover:bg-pink-700 text-xl transition">💓 Send Heart</button>
+      <button id="kissBtn" class="bg-red-500 text-white px-4 py-2 rounded-xl hover:bg-red-700 text-xl transition">💋 Send Kiss</button>
     </div>
 
     <div id="reactionOverlay" class="fixed top-0 left-0 w-full h-full pointer-events-none flex items-center justify-center text-7xl z-50 hidden"></div>
@@ -90,18 +69,11 @@
     const roomId = window.location.pathname.split("/").pop();
     const socket = io();
     const roomPassword = prompt("🔐 Enter room password:");
-    
-    // Key derivation and caching
+
     const keyCache = new Map();
-    
-    const deriveKey = (password, salt) => {
-      return CryptoJS.PBKDF2(password, salt, {
-        keySize: 256/32,
-        iterations: 10000,
-        hasher: CryptoJS.algo.SHA256
-      });
-    };
-    
+    const deriveKey = (password, salt) => CryptoJS.PBKDF2(password, salt, {
+      keySize: 256/32, iterations: 10000, hasher: CryptoJS.algo.SHA256
+    });
     const getDerivedKey = (password, saltHex) => {
       if (!keyCache.has(saltHex)) {
         const salt = CryptoJS.enc.Hex.parse(saltHex);
@@ -112,59 +84,121 @@
 
     function showReaction(type) {
       const emoji = type === "heart" ? "💓" : "💋";
-      reactionOverlay.innerText = emoji;
-      reactionOverlay.classList.remove("hidden");
-      void reactionOverlay.offsetWidth;
-      reactionOverlay.style.animation = "fadeOut 2s ease-in-out forwards";
-      setTimeout(() => reactionOverlay.classList.add("hidden"), 2000);
+      const overlay = document.getElementById("reactionOverlay");
+      overlay.innerText = emoji;
+      overlay.classList.remove("hidden");
+      void overlay.offsetWidth;
+      overlay.style.animation = "fadeOut 2s ease-in-out forwards";
+      setTimeout(() => overlay.classList.add("hidden"), 2000);
     }
 
     socket.emit("join-room", { roomId, password: roomPassword });
 
-    const messages = document.getElementById("messages");
-    const chatForm = document.getElementById("chat-form");
+    const myVideo = document.getElementById("myVideo");
+    const partnerVideo = document.getElementById("partnerVideo");
+    const peerConnection = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    let localStream;
+    let micEnabled = true;
+    let camEnabled = true;
+    let currentFacing = "user";
+
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacing }, audio: true
+    }).then(stream => {
+      localStream = stream;
+      myVideo.srcObject = stream;
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+    }).catch(err => {
+      alert("Camera/mic access is required.");
+      console.error("Media error:", err);
+    });
+
+    peerConnection.ontrack = (event) => {
+      if (!partnerVideo.srcObject) {
+        partnerVideo.srcObject = event.streams[0];
+      }
+    };
+
+    peerConnection.onicecandidate = ({ candidate }) => {
+      if (candidate) socket.emit("ice", { roomId, candidate });
+    };
+
+    socket.on("ice", async ({ candidate }) => {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.error("ICE error:", err);
+      }
+    });
+
+    socket.on("init-host", async () => {
+      try {
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit("offer", { roomId, offer });
+      } catch (err) {
+        console.error("Offer error:", err);
+      }
+    });
+
+    socket.on("offer", async (offer) => {
+      try {
+        await peerConnection.setRemoteDescription(offer);
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit("answer", { roomId, answer });
+      } catch (err) {
+        console.error("Answer error:", err);
+      }
+    });
+
+    socket.on("answer", async ({ answer }) => {
+      try {
+        await peerConnection.setRemoteDescription(answer);
+      } catch (err) {
+        console.error("Set remote description failed:", err);
+      }
+    });
+
+    socket.on("reaction", ({ type }) => showReaction(type));
+    document.getElementById("heartBtn").onclick = () => {
+      socket.emit("reaction", { roomId, type: "heart" });
+      showReaction("heart");
+    };
+    document.getElementById("kissBtn").onclick = () => {
+      socket.emit("reaction", { roomId, type: "kiss" });
+      showReaction("kiss");
+    };
+
     const chatInput = document.getElementById("chat-input");
-    const reactionOverlay = document.getElementById("reactionOverlay");
+    const chatForm = document.getElementById("chat-form");
+    const messages = document.getElementById("messages");
     const typingIndicator = document.getElementById("typingIndicator");
     let typingTimeout;
 
-    // Typing indicator
     chatInput.addEventListener("input", () => {
       socket.emit("typing", roomId);
       clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => {
-        socket.emit("stop-typing", roomId);
-      }, 1000);
+      typingTimeout = setTimeout(() => socket.emit("stop-typing", roomId), 1000);
     });
 
-    socket.on("typing", () => {
-      typingIndicator.style.display = "block";
-    });
-
-    socket.on("stop-typing", () => {
-      typingIndicator.style.display = "none";
-    });
+    socket.on("typing", () => typingIndicator.style.display = "block");
+    socket.on("stop-typing", () => typingIndicator.style.display = "none");
 
     chatForm.addEventListener("submit", (e) => {
       e.preventDefault();
       const msg = chatInput.value.trim();
-      if (!msg) return;  // Prevent empty messages
-      
-      // Secure encryption
+      if (!msg) return;
       const salt = CryptoJS.lib.WordArray.random(16);
       const iv = CryptoJS.lib.WordArray.random(16);
       const saltHex = salt.toString(CryptoJS.enc.Hex);
       const ivHex = iv.toString(CryptoJS.enc.Hex);
       const key = getDerivedKey(roomPassword, saltHex);
-      
-      // Encrypt and format payload
       const encrypted = CryptoJS.AES.encrypt(msg, key, { iv }).toString();
-      const payload = JSON.stringify({
-        salt: saltHex,
-        iv: ivHex,
-        data: encrypted
-      });
-      
+      const payload = JSON.stringify({ salt: saltHex, iv: ivHex, data: encrypted });
       socket.emit("chat", { roomId, message: payload });
       addMessage("You", msg, true);
       chatInput.value = "";
@@ -172,27 +206,21 @@
 
     socket.on("chat", ({ message }) => {
       try {
-        // Parse the structured payload
         const payload = JSON.parse(message);
-        
         const key = getDerivedKey(roomPassword, payload.salt);
         const iv = CryptoJS.enc.Hex.parse(payload.iv);
-        const decrypted = CryptoJS.AES.decrypt(payload.data, key, { iv });
-        const text = decrypted.toString(CryptoJS.enc.Utf8);
-        
-        if (text) {
-          addMessage("Partner", text, false);
-        } else {
-          throw new Error("Decryption failed - empty result");
-        }
+        const text = CryptoJS.AES.decrypt(payload.data, key, { iv }).toString(CryptoJS.enc.Utf8);
+        if (text) addMessage("Partner", text, false);
+        else throw new Error("Decryption failed");
       } catch (e) {
-        console.error("Decryption error:", e);
-        if (e.message.includes("Malformed UTF-8 data")) {
-          addMessage("System", "Decryption failed - wrong password?", false);
-        } else {
-          addMessage("System", "Failed to decrypt message", false);
-        }
+        console.error("Chat decryption error:", e);
+        addMessage("System", "Failed to decrypt message", false);
       }
+    });
+
+    socket.on("partner-left", () => {
+      addMessage("System", "Your partner left the room.", false);
+      partnerVideo.srcObject = null;
     });
 
     function addMessage(sender, text, isMe) {
@@ -203,202 +231,41 @@
       messages.scrollTop = messages.scrollHeight;
     }
 
-    socket.on("partner-left", () => {
-      addMessage("System", "Your partner has left the chat", false);
-      partnerVideo.srcObject = null;
-    });
-
-    socket.on("wrong-password", () => {
-      alert("❌ Wrong password! Access denied.");
-      window.location.href = "/";
-    });
-
-    socket.on("room-full", () => {
-      alert("❌ Room is full! Only 2 users allowed.");
-      window.location.href = "/";
-    });
-
-    const myVideo = document.getElementById("myVideo");
-    const partnerVideo = document.getElementById("partnerVideo");
-    const peerConnection = new RTCPeerConnection({
-      iceServers: [
-        { urls: "stun:stun.l.google.com:19302" },
-        // Add your TURN server here
-      ]
-    });
-
-    let localStream;
-    let micEnabled = true;
-    let camEnabled = true;
-    let currentFacing = "user";
-    let isCaller = false;
-
-    // Get user media
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: currentFacing },
-      audio: true
-    }).then(stream => {
-      localStream = stream;
-      myVideo.srcObject = stream;
-      myVideo.classList.add("mirrored");
-      
-      // Add tracks to peer connection
-      stream.getTracks().forEach(track => {
-        peerConnection.addTrack(track, stream);
-      });
-      
-      // Signal that we're ready
-      socket.emit("ready", roomId);
-    }).catch(err => {
-      console.error("Media access error:", err);
-      alert("Camera/mic access required!");
-    });
-
-    // WebRTC event handlers
-    peerConnection.ontrack = (event) => {
-      if (!partnerVideo.srcObject) {
-        partnerVideo.srcObject = event.streams[0];
-      }
-    };
-
-    peerConnection.onicecandidate = ({ candidate }) => {
-      if (candidate) {
-        socket.emit("ice", { roomId, candidate });
-      }
-    };
-
-    peerConnection.onnegotiationneeded = async () => {
-      if (isCaller) {
-        try {
-          const offer = await peerConnection.createOffer();
-          await peerConnection.setLocalDescription(offer);
-          socket.emit("offer", { roomId, offer });
-        } catch (err) {
-          console.error("Error creating offer:", err);
-        }
-      }
-    };
-
-    socket.on("ice", async ({ candidate }) => {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.error("Error adding ICE candidate:", err);
-      }
-    });
-
-    // Handle ready event - determine who initiates call
-    socket.on("ready", () => {
-      const room = io.sockets.adapter.rooms.get(roomId);
-      if (room.size === 2) {
-        // First user to join becomes caller
-        const [firstUser] = room;
-        isCaller = socket.id === firstUser;
-      }
-    });
-
-    socket.on("offer", async (offer) => {
-      if (peerConnection.signalingState !== "stable") return;
-      
-      try {
-        await peerConnection.setRemoteDescription(offer);
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit("answer", { roomId, answer });
-      } catch (err) {
-        console.error("Error handling offer:", err);
-      }
-    });
-
-    socket.on("answer", async ({ answer }) => {
-      try {
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
-      } catch (err) {
-        console.error("Error setting remote description:", err);
-      }
-    });
-
-    // Control handlers
-    document.getElementById("micToggle").addEventListener("click", () => {
+    document.getElementById("micToggle").onclick = () => {
       micEnabled = !micEnabled;
-      if (localStream) {
-        localStream.getAudioTracks().forEach(track => track.enabled = micEnabled);
-      }
-      document.getElementById("micToggle").innerText = 
-        micEnabled ? "🔇 Mute Mic" : "🎙️ Unmute Mic";
-    });
+      localStream?.getAudioTracks().forEach(track => track.enabled = micEnabled);
+      document.getElementById("micToggle").innerText = micEnabled ? "🔇 Mute Mic" : "🎙️ Unmute Mic";
+    };
 
-    document.getElementById("camToggle").addEventListener("click", () => {
+    document.getElementById("camToggle").onclick = () => {
       camEnabled = !camEnabled;
-      if (localStream) {
-        localStream.getVideoTracks().forEach(track => track.enabled = camEnabled);
-      }
-      document.getElementById("camToggle").innerText = 
-        camEnabled ? "📷 Turn Off Camera" : "🎥 Turn On Camera";
-    });
+      localStream?.getVideoTracks().forEach(track => track.enabled = camEnabled);
+      document.getElementById("camToggle").innerText = camEnabled ? "📷 Turn Off Camera" : "🎥 Turn On Camera";
+    };
 
-    document.getElementById("flipCam").addEventListener("click", async () => {
-      if (!localStream) return;
-      
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (!videoTrack) return;
-      
+    document.getElementById("flipCam").onclick = async () => {
+      const videoTrack = localStream?.getVideoTracks()[0];
       const newFacing = currentFacing === "user" ? "environment" : "user";
-      
       try {
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: newFacing },
-          audio: true
-        });
-        
+        const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: newFacing }, audio: true });
         const newVideoTrack = newStream.getVideoTracks()[0];
-        
-        // Replace video track in peer connection
-        const senders = peerConnection.getSenders();
-        const videoSender = senders.find(s => s.track?.kind === "video");
-        
-        if (videoSender) {
-          await videoSender.replaceTrack(newVideoTrack);
-        }
-        
-        // Update local stream
-        videoTrack.stop();
+        const sender = peerConnection.getSenders().find(s => s.track?.kind === "video");
+        await sender?.replaceTrack(newVideoTrack);
+        videoTrack?.stop();
         localStream.removeTrack(videoTrack);
         localStream.addTrack(newVideoTrack);
         myVideo.srcObject = localStream;
         currentFacing = newFacing;
-        
-        // Update mirror view
         myVideo.classList.toggle("mirrored", newFacing === "user");
-        
-        // Stop unused audio tracks
-        newStream.getAudioTracks().forEach(track => track.stop());
+        newStream.getAudioTracks().forEach(t => t.stop());
       } catch (err) {
-        console.error("Camera switch failed:", err);
-        alert("Camera switch failed: " + err.message);
+        console.error("Camera switch error:", err);
+        alert("Failed to switch camera");
       }
-    });
+    };
 
-    // Reaction handlers
-    document.getElementById("heartBtn").addEventListener("click", () => {
-      socket.emit("reaction", { roomId, type: "heart" });
-      showReaction("heart");
-    });
-
-    document.getElementById("kissBtn").addEventListener("click", () => {
-      socket.emit("reaction", { roomId, type: "kiss" });
-      showReaction("kiss");
-    });
-
-    socket.on("reaction", ({ type }) => {
-      showReaction(type);
-    });
-
-    // Clean up on exit
     window.addEventListener("beforeunload", () => {
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-      }
+      localStream?.getTracks().forEach(track => track.stop());
       socket.emit("leave-room", roomId);
     });
   </script>
