@@ -189,11 +189,44 @@
       background: rgba(255, 255, 255, 0.3);
       border-radius: 3px;
     }
+    #roomFullOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.8);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      color: white;
+      font-size: 24px;
+      text-align: center;
+      padding: 20px;
+    }
+    #roomFullOverlay button {
+      margin-top: 20px;
+      padding: 10px 20px;
+      background-color: #25D366;
+      border: none;
+      border-radius: 5px;
+      color: white;
+      font-size: 16px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <div id="connectionStatus">Connecting...</div>
   
+  <div id="roomFullOverlay" style="display: none;">
+    <h2>This room is already full!</h2>
+    <p>Only 2 people can join a LoveRoom at a time.</p>
+    <button onclick="window.location.href='/'">Go Back</button>
+  </div>
+
   <video id="remoteVideo" autoplay playsinline></video>
   <video id="localVideo" autoplay muted playsinline class="mirrored"></video>
 
@@ -230,6 +263,17 @@
   let micEnabled = true;
   let camEnabled = true;
   let chatOpen = false;
+  let typingTimeout;
+  let retryCount = 0;
+  const MAX_RETRIES = 3;
+
+  // Check if room exists first
+  socket.emit('check-room', { roomId }, ({ exists }) => {
+    if (!exists) {
+      alert('Room does not exist!');
+      window.location.href = '/';
+    }
+  });
 
   // Initialize media and connection
   async function init() {
@@ -244,10 +288,19 @@
       // Join room after media is ready
       const password = prompt('Enter room password:') || '';
       socket.emit('join-room', { roomId, password });
+      
+      // Reset retry count on success
+      retryCount = 0;
     } catch (err) {
       console.error('Media error:', err);
       updateConnectionStatus('Media error');
-      alert('Could not access camera/microphone');
+      
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        setTimeout(init, 3000); // Retry after 3 seconds
+      } else {
+        alert('Could not access camera/microphone after several attempts');
+      }
     }
   }
 
@@ -258,6 +311,7 @@
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' }
+        // Add TURN servers here for better NAT traversal
       ]
     });
 
@@ -291,6 +345,13 @@
       }
     };
 
+    pc.oniceconnectionstatechange = () => {
+      if (pc.iceConnectionState === 'failed') {
+        console.log('ICE connection failed, restarting ICE...');
+        pc.restartIce();
+      }
+    };
+
     return pc;
   }
 
@@ -318,6 +379,20 @@
       delete peerConnections[userId];
       updateConnectionStatus('Partner disconnected');
     }
+  });
+
+  socket.on('room-full', () => {
+    document.getElementById('roomFullOverlay').style.display = 'flex';
+    // Clean up resources
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    Object.values(peerConnections).forEach(pc => pc.close());
+  });
+
+  socket.on('invalid-password', () => {
+    alert('Incorrect password!');
+    window.location.href = '/';
   });
 
   // WebRTC Signaling
@@ -378,14 +453,33 @@
     if (e.key === 'Enter') sendMessage();
   });
 
+  // Typing indicator
+  const chatInput = document.getElementById('chat-input');
+  chatInput.addEventListener('input', () => {
+    socket.emit('typing', { roomId, isTyping: true });
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      socket.emit('typing', { roomId, isTyping: false });
+    }, 1000);
+  });
+
+  socket.on('typing', ({ isTyping }) => {
+    const indicator = document.getElementById('typingIndicator');
+    indicator.style.display = isTyping ? 'block' : 'none';
+    if (isTyping) scrollToBottom();
+  });
+
   function sendMessage() {
-    const msg = document.getElementById('chat-input').value.trim();
+    const msg = sanitizeInput(document.getElementById('chat-input').value.trim());
     if (!msg) return;
     
     socket.emit('send-message', { roomId, message: msg });
     addMessage('You', msg, true);
     document.getElementById('chat-input').value = '';
     scrollToBottom();
+    
+    // Notify that typing has stopped
+    socket.emit('typing', { roomId, isTyping: false });
   }
 
   function addMessage(sender, text, isMe) {
@@ -399,6 +493,12 @@
   function scrollToBottom() {
     const container = document.getElementById('chat-container');
     container.scrollTop = container.scrollHeight;
+  }
+
+  function sanitizeInput(input) {
+    const div = document.createElement('div');
+    div.textContent = input;
+    return div.innerHTML;
   }
 
   // Reactions
@@ -432,8 +532,9 @@
       audioTracks.forEach(track => {
         track.enabled = !track.enabled;
       });
+      micEnabled = audioTracks[0].enabled;
       document.getElementById('micToggle').style.backgroundColor = 
-        audioTracks[0].enabled ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 0, 0, 0.5)';
+        micEnabled ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 0, 0, 0.5)';
     }
   });
 
@@ -443,30 +544,39 @@
       videoTracks.forEach(track => {
         track.enabled = !track.enabled;
       });
+      camEnabled = videoTracks[0].enabled;
       document.getElementById('camToggle').style.backgroundColor = 
-        videoTracks[0].enabled ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 0, 0, 0.5)';
-      document.getElementById('localVideo').style.opacity = videoTracks[0].enabled ? '1' : '0.5';
+        camEnabled ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 0, 0, 0.5)';
+      document.getElementById('localVideo').style.opacity = camEnabled ? '1' : '0.5';
     }
   });
 
   document.getElementById('flipCam').addEventListener('click', async () => {
-    const videoTrack = localStream?.getVideoTracks()[0];
     const newFacing = currentFacing === "user" ? "environment" : "user";
     try {
       const newStream = await navigator.mediaDevices.getUserMedia({ 
         video: { facingMode: newFacing }, 
         audio: true 
       });
-      const newVideoTrack = newStream.getVideoTracks()[0];
-      const sender = peerConnection.getSenders().find(s => s.track?.kind === "video");
-      await sender?.replaceTrack(newVideoTrack);
-      videoTrack?.stop();
-      localStream.removeTrack(videoTrack);
-      localStream.addTrack(newVideoTrack);
+      
+      // Stop old tracks
+      localStream.getTracks().forEach(track => track.stop());
+      
+      // Update local stream
+      localStream = newStream;
       document.getElementById('localVideo').srcObject = localStream;
       currentFacing = newFacing;
       document.getElementById('localVideo').classList.toggle("mirrored", newFacing === "user");
-      newStream.getAudioTracks().forEach(t => t.stop());
+      
+      // Update all peer connections
+      Object.keys(peerConnections).forEach(userId => {
+        const pc = peerConnections[userId];
+        const sender = pc.getSenders().find(s => s.track?.kind === "video");
+        if (sender) {
+          const videoTrack = newStream.getVideoTracks()[0];
+          sender.replaceTrack(videoTrack);
+        }
+      });
     } catch (err) {
       console.error("Camera switch error:", err);
       alert("Failed to switch camera");
@@ -475,7 +585,17 @@
 
   document.getElementById('endCall').addEventListener('click', () => {
     if (confirm('End the call?')) {
-      window.close();
+      // Clean up all peer connections
+      Object.values(peerConnections).forEach(pc => pc.close());
+      peerConnections = {};
+      
+      // Stop local media tracks
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      
+      // Redirect to home
+      window.location.href = '/';
     }
   });
 
@@ -500,6 +620,15 @@
 
   // Initialize everything
   init();
+
+  // Clean up on page unload
+  window.addEventListener('beforeunload', () => {
+    socket.emit('leave-room', { roomId });
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    Object.values(peerConnections).forEach(pc => pc.close());
+  });
   </script>
 </body>
 </html>
