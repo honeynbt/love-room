@@ -44,26 +44,29 @@ io.on('connection', (socket) => {
   });
 
   socket.on('join-room', ({ roomId, password }) => {
-    try {
-      if (rooms.has(roomId)) {
-        const room = rooms.get(roomId);
-        // Check if room is full (max 2 users)
-        if (room.users.length >= 2) {
-          socket.emit('room-full');
-          return;
-        }
-        // Verify password
-        if (room.password !== password) {
-          socket.emit('invalid-password');
-          return;
-        }
-      } else {
-        // Create new room
-        rooms.set(roomId, {
-          password,
-          users: []
-        });
+  try {
+    if (rooms.has(roomId)) {
+      const room = rooms.get(roomId);
+      // Room full check
+      if (rooms.has(roomId) && rooms.get(roomId).users.length >= 2) {
+    socket.emit('room-full');
+    return;
       }
+      // Password verification
+      if (room.password !== password) {
+        socket.emit('invalid-password');
+        return;
+      }
+    } else {
+      // Generate random 6-digit password for new room
+      const newPassword = Math.floor(100000 + Math.random() * 900000).toString();
+      rooms.set(roomId, {
+        password: newPassword,
+        users: []
+      });
+      // Send password back to room creator
+      socket.emit('room-created', { password: newPassword });
+    }
 
       socket.join(roomId);
       socket.roomId = roomId;
@@ -128,6 +131,12 @@ io.on('connection', (socket) => {
   socket.on('typing', ({ roomId, isTyping }) => {
     socket.to(roomId).emit('typing', { isTyping });
   });
+
+  socket.on('end-session', ({ roomId }) => {
+  socket.to(roomId).emit('session-ended');
+  // Clean up room
+  rooms.delete(roomId);
+});
 
   socket.on('disconnect', () => {
     const roomId = socket.roomId;
