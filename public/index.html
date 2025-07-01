@@ -8,7 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <style>
-    body { background-color: #000; }
+    body { background-color: #000; margin: 0; padding: 0; overflow: hidden; }
     #remoteVideo {
       width: 100%;
       height: 100vh;
@@ -50,6 +50,8 @@
       cursor: pointer;
       background-color: rgba(255, 255, 255, 0.2);
       backdrop-filter: blur(5px);
+      color: white;
+      font-size: 20px;
     }
     #chat-container {
       position: absolute;
@@ -59,26 +61,31 @@
       max-height: 200px;
       overflow-y: auto;
       z-index: 3;
-      background-color: rgba(0, 0, 0, 0.5);
-      border-radius: 10px;
-      padding: 10px;
       display: none;
+      padding: 10px;
+    }
+    #messages {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .message-bubble {
       max-width: 80%;
       padding: 8px 12px;
       border-radius: 18px;
-      margin-bottom: 8px;
       color: white;
       word-wrap: break-word;
+      backdrop-filter: blur(5px);
     }
     .my-message { 
-      background-color: rgba(221, 75, 57, 0.9);
+      background-color: rgba(0, 0, 0, 0.3);
       margin-left: auto;
+      border-bottom-right-radius: 4px;
     }
     .partner-message { 
-      background-color: rgba(255, 255, 255, 0.2);
+      background-color: rgba(0, 0, 0, 0.3);
       margin-right: auto;
+      border-bottom-left-radius: 4px;
     }
     #chat-input-container {
       position: absolute;
@@ -92,10 +99,11 @@
     }
     #chat-input {
       flex-grow: 1;
-      padding: 10px 15px;
-      border-radius: 20px;
+      padding: 12px 20px;
+      border-radius: 25px;
       border: none;
       background-color: rgba(255, 255, 255, 0.9);
+      font-size: 16px;
     }
     #send-btn {
       width: 50px;
@@ -108,6 +116,7 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
+      font-size: 20px;
     }
     #chat-toggle {
       position: absolute;
@@ -123,6 +132,8 @@
       justify-content: center;
       cursor: pointer;
       z-index: 3;
+      color: white;
+      font-size: 20px;
     }
     #reactionOverlay {
       position: fixed;
@@ -153,6 +164,7 @@
       color: white;
       background-color: rgba(0, 0, 0, 0.5);
       z-index: 3;
+      font-size: 14px;
     }
     #typingIndicator {
       color: white;
@@ -160,6 +172,22 @@
       font-size: 12px;
       padding: 5px 10px;
       display: none;
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      margin-top: 5px;
+      width: fit-content;
+    }
+    /* Custom scrollbar for chat */
+    #chat-container::-webkit-scrollbar {
+      width: 6px;
+    }
+    #chat-container::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+    }
+    #chat-container::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+      border-radius: 3px;
     }
   </style>
 </head>
@@ -275,6 +303,7 @@
     let micEnabled = true;
     let camEnabled = true;
     let currentFacing = "user";
+    let chatOpen = false;
 
     // Initialize media and connection
     async function startMedia() {
@@ -394,13 +423,16 @@
     const messages = document.getElementById("messages");
     const typingIndicator = document.getElementById("typingIndicator");
     let typingTimeout;
-    let chatOpen = false;
 
     // Toggle chat visibility
     document.getElementById("chat-toggle").addEventListener("click", () => {
       chatOpen = !chatOpen;
       document.getElementById("chat-container").style.display = chatOpen ? "block" : "none";
       document.getElementById("chat-input-container").style.display = chatOpen ? "flex" : "none";
+      if (chatOpen) {
+        chatInput.focus();
+        scrollToBottom();
+      }
     });
 
     chatInput.addEventListener("input", () => {
@@ -409,7 +441,10 @@
       typingTimeout = setTimeout(() => socket.emit("stop-typing", roomId), 1000);
     });
 
-    socket.on("typing", () => typingIndicator.style.display = "block");
+    socket.on("typing", () => {
+      typingIndicator.style.display = "block";
+      scrollToBottom();
+    });
     socket.on("stop-typing", () => typingIndicator.style.display = "none");
 
     function sendMessage() {
@@ -427,6 +462,7 @@
       socket.emit("chat", { roomId, message: payload });
       addMessage("You", msg, true);
       chatInput.value = "";
+      scrollToBottom();
     }
 
     // Send message on button click or Enter key
@@ -440,9 +476,12 @@
       msg.className = `message-bubble ${isMe ? "my-message" : "partner-message"}`;
       msg.innerHTML = `<strong>${sender}:</strong> ${text}`;
       messages.appendChild(msg);
-      
-      // Auto-scroll to bottom
-      messages.scrollTop = messages.scrollHeight;
+      scrollToBottom();
+    }
+
+    function scrollToBottom() {
+      const container = document.getElementById("chat-container");
+      container.scrollTop = container.scrollHeight;
     }
 
     socket.on("chat", ({ message }) => {
@@ -451,7 +490,22 @@
         const key = getDerivedKey(roomPassword, payload.salt);
         const iv = CryptoJS.enc.Hex.parse(payload.iv);
         const text = CryptoJS.AES.decrypt(payload.data, key, { iv }).toString(CryptoJS.enc.Utf8);
-        if (text) addMessage("Partner", text, false);
+        if (text) {
+          addMessage("Partner", text, false);
+          if (!chatOpen) {
+            // Show notification for new message when chat is closed
+            const notification = document.createElement("div");
+            notification.className = "message-bubble partner-message";
+            notification.innerHTML = `<strong>Partner:</strong> ${text.substring(0, 20)}${text.length > 20 ? '...' : ''}`;
+            notification.style.position = "absolute";
+            notification.style.bottom = "250px";
+            notification.style.right = "20px";
+            notification.style.maxWidth = "200px";
+            notification.style.animation = "fadeOut 3s forwards";
+            document.body.appendChild(notification);
+            setTimeout(() => notification.remove(), 3000);
+          }
+        }
         else throw new Error("Decryption failed");
       } catch (e) {
         console.error("Chat decryption error:", e);
