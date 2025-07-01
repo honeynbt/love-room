@@ -8,68 +8,235 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
   <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
   <style>
-    body { background: linear-gradient(to right, #ffafbd, #ffc3a0); }
-    #video-grid video { border: 4px solid #f472b6; border-radius: 1rem; }
-    @media (max-width: 768px) {
-      #video-grid { flex-direction: column; }
-      #video-grid video { width: 100%; }
+    body { background-color: #000; }
+    #remoteVideo {
+      width: 100%;
+      height: 100vh;
+      object-fit: cover;
+      position: absolute;
+      top: 0;
+      left: 0;
+      z-index: 1;
     }
-    #myVideo.mirrored { transform: scaleX(-1); }
-    #reactionOverlay {
-      animation: fadeOut 2s ease-in-out forwards;
-      text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+    #localVideo {
+      width: 120px;
+      height: 160px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 2px solid white;
+      position: absolute;
+      bottom: 20px;
+      right: 20px;
+      z-index: 2;
     }
-    @keyframes fadeOut {
-      0% { opacity: 1; transform: scale(1); }
-      100% { opacity: 0; transform: scale(2); }
+    #localVideo.mirrored { transform: scaleX(-1); }
+    #controls {
+      position: absolute;
+      bottom: 80px;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+      z-index: 3;
+    }
+    .control-btn {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      background-color: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(5px);
+    }
+    #chat-container {
+      position: absolute;
+      bottom: 180px;
+      left: 20px;
+      right: 20px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 3;
+      background-color: rgba(0, 0, 0, 0.5);
+      border-radius: 10px;
+      padding: 10px;
+      display: none;
     }
     .message-bubble {
       max-width: 80%;
       padding: 8px 12px;
       border-radius: 18px;
       margin-bottom: 8px;
+      color: white;
+      word-wrap: break-word;
     }
-    .my-message { background-color: #d1f0ff; align-self: flex-end; }
-    .partner-message { background-color: #f0f0f0; align-self: flex-start; }
-    #typingIndicator { display: none; font-style: italic; color: #888; margin-top: 4px; }
+    .my-message { 
+      background-color: rgba(221, 75, 57, 0.9);
+      margin-left: auto;
+    }
+    .partner-message { 
+      background-color: rgba(255, 255, 255, 0.2);
+      margin-right: auto;
+    }
+    #chat-input-container {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      right: 20px;
+      display: flex;
+      gap: 10px;
+      z-index: 3;
+      display: none;
+    }
+    #chat-input {
+      flex-grow: 1;
+      padding: 10px 15px;
+      border-radius: 20px;
+      border: none;
+      background-color: rgba(255, 255, 255, 0.9);
+    }
+    #send-btn {
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background-color: #25D366;
+      color: white;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+    #chat-toggle {
+      position: absolute;
+      bottom: 180px;
+      right: 20px;
+      width: 50px;
+      height: 50px;
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.2);
+      backdrop-filter: blur(5px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      z-index: 3;
+    }
+    #reactionOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 100px;
+      z-index: 4;
+      animation: fadeOut 2s ease-in-out forwards;
+      text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
+      display: none;
+    }
+    @keyframes fadeOut {
+      0% { opacity: 1; transform: scale(1); }
+      100% { opacity: 0; transform: scale(2); }
+    }
+    #connectionStatus {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      padding: 5px 10px;
+      border-radius: 20px;
+      color: white;
+      background-color: rgba(0, 0, 0, 0.5);
+      z-index: 3;
+    }
+    #typingIndicator {
+      color: white;
+      font-style: italic;
+      font-size: 12px;
+      padding: 5px 10px;
+      display: none;
+    }
   </style>
 </head>
-<body class="flex flex-col items-center justify-center min-h-screen px-4">
-  <h1 class="text-4xl font-bold text-white mb-6">💞 Welcome to LoveRoom</h1>
-  <div class="bg-white p-6 rounded-2xl shadow-xl w-full max-w-2xl">
-    <div id="chat-container" class="mb-4 max-h-60 overflow-y-auto flex flex-col">
-      <div id="messages" class="space-y-2"></div>
-      <div id="typingIndicator">Partner is typing...</div>
-    </div>
-    <form id="chat-form" class="flex space-x-2">
-      <input id="chat-input" type="text" placeholder="Say something..." class="flex-1 p-2 border rounded-xl" required />
-      <button type="submit" class="bg-pink-500 text-white px-4 py-2 rounded-xl hover:bg-pink-600 transition">Send</button>
-    </form>
+<body>
+  <div id="connectionStatus">Connecting...</div>
+  
+  <video id="remoteVideo" autoplay playsinline></video>
+  <video id="localVideo" autoplay muted playsinline class="mirrored"></video>
 
-    <div id="video-grid" class="mt-6 flex space-x-4 justify-center">
-      <video id="myVideo" autoplay muted playsinline class="w-1/2 mirrored"></video>
-      <video id="partnerVideo" autoplay playsinline class="w-1/2"></video>
-    </div>
-
-    <div class="mt-4 flex justify-center space-x-4">
-      <button id="micToggle" class="bg-red-400 text-white px-4 py-2 rounded-xl hover:bg-red-600 transition">🔇 Mute Mic</button>
-      <button id="camToggle" class="bg-blue-400 text-white px-4 py-2 rounded-xl hover:bg-blue-600 transition">📷 Turn Off Camera</button>
-      <button id="flipCam" class="bg-purple-400 text-white px-4 py-2 rounded-xl hover:bg-purple-600 transition">🔄 Flip Camera</button>
-    </div>
-
-    <div class="mt-4 flex justify-center space-x-4">
-      <button id="heartBtn" class="bg-pink-500 text-white px-4 py-2 rounded-xl hover:bg-pink-700 text-xl transition">💓 Send Heart</button>
-      <button id="kissBtn" class="bg-red-500 text-white px-4 py-2 rounded-xl hover:bg-red-700 text-xl transition">💋 Send Kiss</button>
-    </div>
-
-    <div id="reactionOverlay" class="fixed top-0 left-0 w-full h-full pointer-events-none flex items-center justify-center text-7xl z-50 hidden"></div>
+  <div id="controls">
+    <div id="micToggle" class="control-btn">🎤</div>
+    <div id="camToggle" class="control-btn">📷</div>
+    <div id="flipCam" class="control-btn">🔄</div>
+    <div id="endCall" class="control-btn bg-red-500">📞</div>
+    <div id="heartBtn" class="control-btn">💓</div>
+    <div id="kissBtn" class="control-btn">💋</div>
   </div>
 
+  <div id="chat-toggle">💬</div>
+
+  <div id="chat-container">
+    <div id="messages"></div>
+    <div id="typingIndicator">Partner is typing...</div>
+  </div>
+
+  <div id="chat-input-container">
+    <input id="chat-input" type="text" placeholder="Type a message..." />
+    <button id="send-btn">➤</button>
+  </div>
+
+  <div id="reactionOverlay"></div>
+
   <script>
+    // Connection state management
+    let isCaller = false;
+    let makingOffer = false;
+    let ignoreOffer = false;
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 3;
+    let reconnectTimer = null;
+
     const roomId = window.location.pathname.split("/").pop();
-    const socket = io();
+    const socket = io({
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000
+    });
     const roomPassword = prompt("🔐 Enter room password:");
 
+    // Update connection status UI
+    function updateConnectionStatus(status) {
+      const statusEl = document.getElementById("connectionStatus");
+      statusEl.textContent = status;
+      statusEl.style.backgroundColor = 
+        status === "Connected" ? "rgba(40, 167, 69, 0.8)" : 
+        status === "Disconnected" ? "rgba(220, 53, 69, 0.8)" : "rgba(255, 193, 7, 0.8)";
+    }
+
+    // Attempt reconnection
+    function attemptReconnect() {
+      if (reconnectAttempts < maxReconnectAttempts) {
+        reconnectAttempts++;
+        updateConnectionStatus(`Reconnecting (${reconnectAttempts}/${maxReconnectAttempts})`);
+        reconnectTimer = setTimeout(initializeConnection, 2000 * reconnectAttempts);
+      } else {
+        updateConnectionStatus("Disconnected");
+        alert("Connection failed. Please refresh the page.");
+      }
+    }
+
+    // Initialize connection
+    function initializeConnection() {
+      updateConnectionStatus("Connecting...");
+      socket.emit("join-room", { roomId, password: roomPassword });
+    }
+
+    // Encryption setup
     const keyCache = new Map();
     const deriveKey = (password, salt) => CryptoJS.PBKDF2(password, salt, {
       keySize: 256/32, iterations: 10000, hasher: CryptoJS.algo.SHA256
@@ -82,22 +249,26 @@
       return keyCache.get(saltHex);
     };
 
+    // Reaction animation
     function showReaction(type) {
       const emoji = type === "heart" ? "💓" : "💋";
       const overlay = document.getElementById("reactionOverlay");
       overlay.innerText = emoji;
-      overlay.classList.remove("hidden");
-      void overlay.offsetWidth;
-      overlay.style.animation = "fadeOut 2s ease-in-out forwards";
-      setTimeout(() => overlay.classList.add("hidden"), 2000);
+      overlay.style.display = "flex";
+      setTimeout(() => {
+        overlay.style.display = "none";
+      }, 2000);
     }
 
-    socket.emit("join-room", { roomId, password: roomPassword });
-
-    const myVideo = document.getElementById("myVideo");
-    const partnerVideo = document.getElementById("partnerVideo");
+    // WebRTC setup
+    const localVideo = document.getElementById("localVideo");
+    const remoteVideo = document.getElementById("remoteVideo");
     const peerConnection = new RTCPeerConnection({
-      iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        // Add your TURN server here if available
+      ],
+      iceCandidatePoolSize: 10
     });
 
     let localStream;
@@ -105,26 +276,103 @@
     let camEnabled = true;
     let currentFacing = "user";
 
-    navigator.mediaDevices.getUserMedia({
-      video: { facingMode: currentFacing }, audio: true
-    }).then(stream => {
-      localStream = stream;
-      myVideo.srcObject = stream;
-      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
-    }).catch(err => {
-      alert("Camera/mic access is required.");
-      console.error("Media error:", err);
-    });
+    // Initialize media and connection
+    async function startMedia() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacing }, 
+          audio: true
+        });
+        
+        localStream = stream;
+        localVideo.srcObject = stream;
+        stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+        updateConnectionStatus("Connected");
+      } catch (err) {
+        console.error("Media error:", err);
+        updateConnectionStatus("Media Error");
+        alert("Camera/mic access is required.");
+      }
+    }
 
+    // WebRTC event handlers
     peerConnection.ontrack = (event) => {
-      if (!partnerVideo.srcObject) {
-        partnerVideo.srcObject = event.streams[0];
+      if (!remoteVideo.srcObject) {
+        remoteVideo.srcObject = event.streams[0];
+        updateConnectionStatus("Connected");
       }
     };
 
     peerConnection.onicecandidate = ({ candidate }) => {
       if (candidate) socket.emit("ice", { roomId, candidate });
     };
+
+    peerConnection.oniceconnectionstatechange = () => {
+      if (peerConnection.iceConnectionState === "disconnected") {
+        updateConnectionStatus("Reconnecting...");
+        attemptReconnect();
+      }
+    };
+
+    peerConnection.onnegotiationneeded = async () => {
+      try {
+        makingOffer = true;
+        await peerConnection.setLocalDescription();
+        socket.emit("offer", { roomId, offer: peerConnection.localDescription });
+      } catch (err) {
+        console.error("Negotiation error:", err);
+      } finally {
+        makingOffer = false;
+      }
+    };
+
+    // Socket.io event handlers
+    socket.on("connect", () => {
+      updateConnectionStatus("Connected");
+      reconnectAttempts = 0;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    });
+
+    socket.on("disconnect", () => {
+      updateConnectionStatus("Disconnected");
+      attemptReconnect();
+    });
+
+    socket.on("join-room", () => {
+      isCaller = true;
+      startMedia();
+    });
+
+    socket.on("offer", async (offer) => {
+      try {
+        if (offer) {
+          const offerCollision = (makingOffer || peerConnection.signalingState !== "stable");
+          ignoreOffer = !isCaller && offerCollision;
+          if (ignoreOffer) return;
+
+          await peerConnection.setRemoteDescription(offer);
+          if (offer.type === "offer") {
+            await peerConnection.setLocalDescription();
+            socket.emit("answer", { roomId, answer: peerConnection.localDescription });
+          }
+        }
+      } catch (err) {
+        console.error("Offer handling error:", err);
+      }
+    });
+
+    socket.on("answer", async ({ answer }) => {
+      if (!ignoreOffer) {
+        try {
+          await peerConnection.setRemoteDescription(answer);
+        } catch (err) {
+          console.error("Answer handling error:", err);
+        }
+      }
+    });
 
     socket.on("ice", async ({ candidate }) => {
       try {
@@ -134,50 +382,26 @@
       }
     });
 
-    socket.on("init-host", async () => {
-      try {
-        const offer = await peerConnection.createOffer();
-        await peerConnection.setLocalDescription(offer);
-        socket.emit("offer", { roomId, offer });
-      } catch (err) {
-        console.error("Offer error:", err);
-      }
-    });
-
-    socket.on("offer", async (offer) => {
-      try {
-        await peerConnection.setRemoteDescription(offer);
-        const answer = await peerConnection.createAnswer();
-        await peerConnection.setLocalDescription(answer);
-        socket.emit("answer", { roomId, answer });
-      } catch (err) {
-        console.error("Answer error:", err);
-      }
-    });
-
-    socket.on("answer", async ({ answer }) => {
-      try {
-        await peerConnection.setRemoteDescription(answer);
-      } catch (err) {
-        console.error("Set remote description failed:", err);
-      }
-    });
-
     socket.on("reaction", ({ type }) => showReaction(type));
-    document.getElementById("heartBtn").onclick = () => {
-      socket.emit("reaction", { roomId, type: "heart" });
-      showReaction("heart");
-    };
-    document.getElementById("kissBtn").onclick = () => {
-      socket.emit("reaction", { roomId, type: "kiss" });
-      showReaction("kiss");
-    };
+    socket.on("partner-left", () => {
+      addMessage("System", "Your partner left the room.", false);
+      remoteVideo.srcObject = null;
+      updateConnectionStatus("Partner Disconnected");
+    });
 
+    // Chat functionality
     const chatInput = document.getElementById("chat-input");
-    const chatForm = document.getElementById("chat-form");
     const messages = document.getElementById("messages");
     const typingIndicator = document.getElementById("typingIndicator");
     let typingTimeout;
+    let chatOpen = false;
+
+    // Toggle chat visibility
+    document.getElementById("chat-toggle").addEventListener("click", () => {
+      chatOpen = !chatOpen;
+      document.getElementById("chat-container").style.display = chatOpen ? "block" : "none";
+      document.getElementById("chat-input-container").style.display = chatOpen ? "flex" : "none";
+    });
 
     chatInput.addEventListener("input", () => {
       socket.emit("typing", roomId);
@@ -188,10 +412,10 @@
     socket.on("typing", () => typingIndicator.style.display = "block");
     socket.on("stop-typing", () => typingIndicator.style.display = "none");
 
-    chatForm.addEventListener("submit", (e) => {
-      e.preventDefault();
+    function sendMessage() {
       const msg = chatInput.value.trim();
       if (!msg) return;
+      
       const salt = CryptoJS.lib.WordArray.random(16);
       const iv = CryptoJS.lib.WordArray.random(16);
       const saltHex = salt.toString(CryptoJS.enc.Hex);
@@ -199,10 +423,27 @@
       const key = getDerivedKey(roomPassword, saltHex);
       const encrypted = CryptoJS.AES.encrypt(msg, key, { iv }).toString();
       const payload = JSON.stringify({ salt: saltHex, iv: ivHex, data: encrypted });
+      
       socket.emit("chat", { roomId, message: payload });
       addMessage("You", msg, true);
       chatInput.value = "";
+    }
+
+    // Send message on button click or Enter key
+    document.getElementById("send-btn").addEventListener("click", sendMessage);
+    chatInput.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendMessage();
     });
+
+    function addMessage(sender, text, isMe) {
+      const msg = document.createElement("div");
+      msg.className = `message-bubble ${isMe ? "my-message" : "partner-message"}`;
+      msg.innerHTML = `<strong>${sender}:</strong> ${text}`;
+      messages.appendChild(msg);
+      
+      // Auto-scroll to bottom
+      messages.scrollTop = messages.scrollHeight;
+    }
 
     socket.on("chat", ({ message }) => {
       try {
@@ -218,56 +459,74 @@
       }
     });
 
-    socket.on("partner-left", () => {
-      addMessage("System", "Your partner left the room.", false);
-      partnerVideo.srcObject = null;
-    });
-
-    function addMessage(sender, text, isMe) {
-      const msg = document.createElement("div");
-      msg.className = `message-bubble ${isMe ? "my-message" : "partner-message"}`;
-      msg.innerHTML = `<strong>${sender}:</strong> ${text}`;
-      messages.appendChild(msg);
-      messages.scrollTop = messages.scrollHeight;
-    }
-
-    document.getElementById("micToggle").onclick = () => {
+    // UI Controls
+    document.getElementById("micToggle").addEventListener("click", () => {
       micEnabled = !micEnabled;
       localStream?.getAudioTracks().forEach(track => track.enabled = micEnabled);
-      document.getElementById("micToggle").innerText = micEnabled ? "🔇 Mute Mic" : "🎙️ Unmute Mic";
-    };
+      document.getElementById("micToggle").innerText = micEnabled ? "🎤" : "🔇";
+      document.getElementById("micToggle").style.backgroundColor = micEnabled ? 
+        "rgba(255, 255, 255, 0.2)" : "rgba(255, 0, 0, 0.5)";
+    });
 
-    document.getElementById("camToggle").onclick = () => {
+    document.getElementById("camToggle").addEventListener("click", () => {
       camEnabled = !camEnabled;
       localStream?.getVideoTracks().forEach(track => track.enabled = camEnabled);
-      document.getElementById("camToggle").innerText = camEnabled ? "📷 Turn Off Camera" : "🎥 Turn On Camera";
-    };
+      document.getElementById("camToggle").innerText = camEnabled ? "📷" : "🚫";
+      document.getElementById("camToggle").style.backgroundColor = camEnabled ? 
+        "rgba(255, 255, 255, 0.2)" : "rgba(255, 0, 0, 0.5)";
+      localVideo.style.opacity = camEnabled ? "1" : "0.5";
+    });
 
-    document.getElementById("flipCam").onclick = async () => {
+    document.getElementById("flipCam").addEventListener("click", async () => {
       const videoTrack = localStream?.getVideoTracks()[0];
       const newFacing = currentFacing === "user" ? "environment" : "user";
       try {
-        const newStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: newFacing }, audio: true });
+        const newStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: newFacing }, 
+          audio: true 
+        });
         const newVideoTrack = newStream.getVideoTracks()[0];
         const sender = peerConnection.getSenders().find(s => s.track?.kind === "video");
         await sender?.replaceTrack(newVideoTrack);
         videoTrack?.stop();
         localStream.removeTrack(videoTrack);
         localStream.addTrack(newVideoTrack);
-        myVideo.srcObject = localStream;
+        localVideo.srcObject = localStream;
         currentFacing = newFacing;
-        myVideo.classList.toggle("mirrored", newFacing === "user");
+        localVideo.classList.toggle("mirrored", newFacing === "user");
         newStream.getAudioTracks().forEach(t => t.stop());
       } catch (err) {
         console.error("Camera switch error:", err);
         alert("Failed to switch camera");
       }
-    };
+    });
 
+    document.getElementById("endCall").addEventListener("click", () => {
+      if (confirm("End the call?")) {
+        window.close();
+      }
+    });
+
+    // Reaction buttons
+    document.getElementById("heartBtn").addEventListener("click", () => {
+      socket.emit("reaction", { roomId, type: "heart" });
+      showReaction("heart");
+    });
+
+    document.getElementById("kissBtn").addEventListener("click", () => {
+      socket.emit("reaction", { roomId, type: "kiss" });
+      showReaction("kiss");
+    });
+
+    // Cleanup on exit
     window.addEventListener("beforeunload", () => {
       localStream?.getTracks().forEach(track => track.stop());
       socket.emit("leave-room", roomId);
     });
+
+    // Initialize everything
+    initializeConnection();
+    startMedia();
   </script>
 </body>
 </html>

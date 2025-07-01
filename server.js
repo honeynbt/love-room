@@ -50,7 +50,7 @@ io.on("connection", (socket) => {
     if (numClients === 0) {
       socket.emit("init-host");
     } else {
-      socket.to(roomId).emit("init-host");
+      socket.to(roomId).emit("partner-joined");
     }
   });
 
