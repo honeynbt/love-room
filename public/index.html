@@ -52,6 +52,7 @@
       backdrop-filter: blur(5px);
       color: white;
       font-size: 20px;
+      transition: background-color 0.3s;
     }
     #chat-container {
       position: absolute;
@@ -63,6 +64,9 @@
       z-index: 3;
       display: none;
       padding: 10px;
+      background-color: rgba(0, 0, 0, 0.3);
+      border-radius: 10px;
+      backdrop-filter: blur(5px);
     }
     #messages {
       display: flex;
@@ -75,15 +79,14 @@
       border-radius: 18px;
       color: white;
       word-wrap: break-word;
-      backdrop-filter: blur(5px);
     }
     .my-message { 
-      background-color: rgba(0, 0, 0, 0.3);
+      background-color: rgba(255, 255, 255, 0.2);
       margin-left: auto;
       border-bottom-right-radius: 4px;
     }
     .partner-message { 
-      background-color: rgba(0, 0, 0, 0.3);
+      background-color: rgba(255, 255, 255, 0.1);
       margin-right: auto;
       border-bottom-left-radius: 4px;
     }
@@ -134,22 +137,26 @@
       z-index: 3;
       color: white;
       font-size: 20px;
+      transition: background-color 0.3s;
+    }
+    #chat-toggle.active {
+      background-color: rgba(255, 255, 255, 0.4);
     }
 
     #notification-badge {
-    position: absolute;
-    top: -5px;
-    right: -5px;
-    background-color: red;
-    color: white;
-    border-radius: 50%;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 12px;
-  }
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      background-color: red;
+      color: white;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
 
     #reactionOverlay {
       position: fixed;
@@ -256,9 +263,9 @@
   </div>
 
   <div id="chat-toggle">
-  💬
-  <div id="notification-badge" style="display: none;"></div>
-</div>
+    💬
+    <div id="notification-badge"></div>
+  </div>
 
   <div id="chat-container">
     <div id="messages"></div>
@@ -285,39 +292,40 @@
   let typingTimeout;
   let retryCount = 0;
   const MAX_RETRIES = 3;
-
+  let unreadMessages = 0;
 
   // Initialize media and connection
   async function init() {
-  try {
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: currentFacing },
-      audio: true
-    });
-    document.getElementById('localVideo').srcObject = localStream;
-    
-    // Join room after media access is granted
-    const password = prompt('Enter room password:') || '';
-    if (!password) {
-      alert('Password is required!');
-      window.location.href = '/';
-      return;
-    }
-    
-    // Join the room with password
-    socket.emit('join-room', { roomId, password });
-    
-    retryCount = 0;
-  } catch (err) {
-    console.error('Media error:', err);
-    if (retryCount < MAX_RETRIES) {
-      retryCount++;
-      setTimeout(init, 3000);
-    } else {
-      alert('Could not access camera/microphone');
+    try {
+      localStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: currentFacing },
+        audio: true
+      });
+      document.getElementById('localVideo').srcObject = localStream;
+      
+      // Join room after media access is granted
+      const password = prompt('Enter room password:') || '';
+      if (!password) {
+        alert('Password is required!');
+        window.location.href = '/';
+        return;
+      }
+      
+      // Join the room with password
+      socket.emit('join-room', { roomId, password });
+      
+      retryCount = 0;
+    } catch (err) {
+      console.error('Media error:', err);
+      if (retryCount < MAX_RETRIES) {
+        retryCount++;
+        setTimeout(init, 3000);
+      } else {
+        alert('Could not access camera/microphone. Please check permissions.');
+        window.location.href = '/';
+      }
     }
   }
-}
 
   // WebRTC Peer Connection
   function createPeerConnection(userId) {
@@ -326,7 +334,6 @@
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' },
         { urls: 'stun:stun2.l.google.com:19302' }
-        // Add TURN servers here for better NAT traversal
       ]
     });
 
@@ -397,13 +404,13 @@
   });
 
   socket.on('room-full', () => {
-  document.getElementById('roomFullOverlay').style.display = 'flex';
-  // Clean up resources
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-  }
-  Object.values(peerConnections).forEach(pc => pc.close());
-});
+    document.getElementById('roomFullOverlay').style.display = 'flex';
+    // Clean up resources
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    Object.values(peerConnections).forEach(pc => pc.close());
+  });
 
   socket.on('invalid-password', () => {
     alert('Incorrect password!');
@@ -459,27 +466,23 @@
   }
 
   // Chat functionality
-  let unreadMessages = 0;
+  socket.on('receive-message', (message) => {
+    addMessage('Partner', message, false);
+    if (!chatOpen) {
+      unreadMessages++;
+      updateMessageBadge();
+    }
+  });
 
-socket.on('receive-message', (message) => {
-  addMessage('Partner', message, false);
-  if (!chatOpen) {
-    unreadMessages++;
-    updateMessageBadge();
+  function updateMessageBadge() {
+    const badge = document.getElementById('notification-badge');
+    if (unreadMessages > 0) {
+      badge.style.display = 'flex';
+      badge.textContent = unreadMessages > 9 ? '9+' : unreadMessages;
+    } else {
+      badge.style.display = 'none';
+    }
   }
-});
-
-function updateMessageBadge() {
-  const badge = document.getElementById('notification-badge'); // Match ID
-  if (unreadMessages > 0) {
-    badge.style.display = 'flex';
-    badge.textContent = unreadMessages > 9 ? '9+' : unreadMessages;
-  } else {
-    badge.style.display = 'none';
-  }
-}
-
-
 
   document.getElementById('send-btn').addEventListener('click', sendMessage);
   document.getElementById('chat-input').addEventListener('keypress', (e) => {
@@ -617,32 +620,32 @@ function updateMessageBadge() {
   });
 
   document.getElementById('endCall').addEventListener('click', () => {
-  if (confirm('End the call for both participants?')) {
-    // Notify partner
-    socket.emit('end-session', { roomId });
-    
-    // Clean up
+    if (confirm('End the call for both participants?')) {
+      // Notify partner
+      socket.emit('end-session', { roomId });
+      
+      // Clean up
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+      Object.values(peerConnections).forEach(pc => pc.close());
+      
+      // Close window after short delay
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 500);
+    }
+  });
+
+  // Handle session end from partner
+  socket.on('session-ended', () => {
+    alert('Your partner has ended the session');
     if (localStream) {
       localStream.getTracks().forEach(track => track.stop());
     }
     Object.values(peerConnections).forEach(pc => pc.close());
-    
-    // Close window after short delay
-    setTimeout(() => {
-      window.location.href = '/goodbye.html'; // Or window.close()
-    }, 500);
-  }
-});
-
-// Handle session end from partner
-socket.on('session-ended', () => {
-  alert('Your partner has ended the session');
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-  }
-  Object.values(peerConnections).forEach(pc => pc.close());
-  window.location.href = '/goodbye.html';
-});
+    window.location.href = '/';
+  });
 
   function updateConnectionStatus(status) {
     const statusEl = document.getElementById('connectionStatus');
@@ -652,21 +655,24 @@ socket.on('session-ended', () => {
       status.includes('Disconnected') ? 'rgba(220, 53, 69, 0.8)' : 'rgba(255, 193, 7, 0.8)';
   }
 
-document.getElementById('chat-toggle').addEventListener('click', () => {
-  chatOpen = !chatOpen;
+  // Chat toggle functionality
+  document.getElementById('chat-toggle').addEventListener('click', () => {
+    chatOpen = !chatOpen;
+    
+    // Update toggle button state
+    document.getElementById('chat-toggle').classList.toggle('active', chatOpen);
+    
+    // Toggle chat visibility
+    document.getElementById('chat-container').style.display = chatOpen ? 'block' : 'none';
+    document.getElementById('chat-input-container').style.display = chatOpen ? 'flex' : 'none';
 
-  // Toggle visibility
-  document.getElementById('chat-container').style.display = chatOpen ? 'block' : 'none';
-  document.getElementById('chat-input-container').style.display = chatOpen ? 'flex' : 'none';
-
-  if (chatOpen) {
-    unreadMessages = 0;
-    updateMessageBadge();
-    document.getElementById('chat-input').focus();
-    scrollToBottom();
-  }
-});
-
+    if (chatOpen) {
+      unreadMessages = 0;
+      updateMessageBadge();
+      document.getElementById('chat-input').focus();
+      scrollToBottom();
+    }
+  });
 
   // Initialize everything
   init();
