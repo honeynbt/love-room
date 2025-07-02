@@ -56,7 +56,7 @@
     }
     #chat-container {
       position: absolute;
-      bottom: 180px;
+      bottom: 240px; /* Increased space for toggle */
       left: 20px;
       right: 20px;
       max-height: 200px;
@@ -134,10 +134,10 @@
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      z-index: 3;
+      z-index: 4; /* Above chat */
       color: white;
       font-size: 20px;
-      transition: background-color 0.3s;
+      transition: all 0.3s;
     }
     #chat-toggle.active {
       background-color: rgba(255, 255, 255, 0.4);
@@ -169,7 +169,7 @@
       align-items: center;
       justify-content: center;
       font-size: 100px;
-      z-index: 4;
+      z-index: 5;
       animation: fadeOut 2s ease-in-out forwards;
       text-shadow: 0 0 20px rgba(255, 0, 0, 0.8);
       display: none;
@@ -679,11 +679,21 @@
 
   // Clean up on page unload
   window.addEventListener('beforeunload', () => {
-    socket.emit('leave-room', { roomId });
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+    if (socket.connected) {
+      socket.emit('leave-room', { roomId }, () => {
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+        }
+        Object.values(peerConnections).forEach(pc => pc.close());
+      });
     }
-    Object.values(peerConnections).forEach(pc => pc.close());
+  });
+
+  // Handle mobile/safari pagehide
+  window.addEventListener('pagehide', () => {
+    if (socket.connected) {
+      socket.emit('end-session', { roomId });
+    }
   });
   </script>
 </body>
