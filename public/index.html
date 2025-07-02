@@ -296,7 +296,7 @@
     });
     document.getElementById('localVideo').srcObject = localStream;
     
-    // Check room existence AFTER media access
+    // Join room after media access is granted
     const password = prompt('Enter room password:') || '';
     if (!password) {
       alert('Password is required!');
@@ -304,6 +304,8 @@
       return;
     }
     
+    // Join the room with password
+    socket.emit('join-room', { roomId, password });
     
     retryCount = 0;
   } catch (err) {
