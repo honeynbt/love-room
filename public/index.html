@@ -64,9 +64,9 @@
       z-index: 3;
       display: none;
       padding: 10px;
-      background-color: rgba(0, 0, 0, 0.3);
+      background-color: transparent;
       border-radius: 10px;
-      backdrop-filter: blur(5px);
+      backdrop-filter: none;
     }
     #messages {
       display: flex;
@@ -81,14 +81,16 @@
       word-wrap: break-word;
     }
     .my-message { 
-      background-color: rgba(255, 255, 255, 0.2);
+      background-color: transparent;
       margin-left: auto;
       border-bottom-right-radius: 4px;
+      text-shadow: 0 0 5px black;
     }
     .partner-message { 
-      background-color: rgba(255, 255, 255, 0.1);
+      background-color: transparent;
       margin-right: auto;
       border-bottom-left-radius: 4px;
+      text-shadow: 0 0 5px black;
     }
     #chat-input-container {
       position: absolute;
@@ -587,37 +589,45 @@
     }
   });
 
-  document.getElementById('flipCam').addEventListener('click', async () => {
-    const newFacing = currentFacing === "user" ? "environment" : "user";
-    try {
-      const newStream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: newFacing }, 
-        audio: true 
-      });
-      
-      // Stop old tracks
-      localStream.getTracks().forEach(track => track.stop());
-      
-      // Update local stream
-      localStream = newStream;
-      document.getElementById('localVideo').srcObject = localStream;
-      currentFacing = newFacing;
-      document.getElementById('localVideo').classList.toggle("mirrored", newFacing === "user");
-      
-      // Update all peer connections
-      Object.keys(peerConnections).forEach(userId => {
-        const pc = peerConnections[userId];
-        const sender = pc.getSenders().find(s => s.track?.kind === "video");
-        if (sender) {
-          const videoTrack = newStream.getVideoTracks()[0];
-          sender.replaceTrack(videoTrack);
-        }
-      });
-    } catch (err) {
-      console.error("Camera switch error:", err);
-      alert("Failed to switch camera");
-    }
-  });
+document.getElementById('flipCam').addEventListener('click', async () => {
+  const newFacing = currentFacing === "user" ? "environment" : "user";
+  
+  try {
+    // 1. Get ONLY VIDEO track (critical change)
+    const newStream = await navigator.mediaDevices.getUserMedia({ 
+      video: { facingMode: newFacing } 
+      // Audio: false (don't touch audio!)
+    });
+
+    // 2. Preserve original audio tracks
+    const audioTracks = localStream.getAudioTracks();
+
+    // 3. Stop only video tracks from old stream
+    localStream.getVideoTracks().forEach(track => track.stop());
+
+    // 4. Add new video track to existing stream
+    const [newVideoTrack] = newStream.getVideoTracks();
+    localStream.addTrack(newVideoTrack);
+
+    // 5. Update peer connections (video only)
+    Object.values(peerConnections).forEach(pc => {
+      const sender = pc.getSenders().find(s => s.track.kind === "video");
+      if (sender) sender.replaceTrack(newVideoTrack);
+    });
+
+    // 6. Update UI
+    document.getElementById('localVideo').srcObject = null;
+    document.getElementById('localVideo').srcObject = localStream;
+    currentFacing = newFacing;
+    document.getElementById('localVideo').classList.toggle("mirrored", newFacing === "user");
+
+    // 7. Cleanup (don't stop audio!)
+    newStream.getAudioTracks().forEach(track => track.stop()); // Should be empty
+  } catch (err) {
+    console.error("Camera switch failed:", err);
+    alert("Camera switch error - your audio remains active");
+  }
+});
 
   document.getElementById('endCall').addEventListener('click', () => {
     if (confirm('End the call for both participants?')) {
@@ -632,8 +642,8 @@
       
       // Close window after short delay
       setTimeout(() => {
-        window.location.href = '/';
-      }, 500);
+        window.location.href = '/goodbye.html';
+      }, 300);
     }
   });
 
