@@ -255,8 +255,9 @@
     <div id="kissBtn" class="control-btn">💋</div>
   </div>
 
-  <div id="chat-toggle">💬
-  <div id="messageBadge" class="notification-badge" style="display: none;"></div>
+  <div id="chat-toggle">
+  💬
+  <div id="notification-badge" style="display: none;"></div>
 </div>
 
   <div id="chat-container">
@@ -285,42 +286,36 @@
   let retryCount = 0;
   const MAX_RETRIES = 3;
 
-  // Check if room exists first
-  socket.emit('check-room', { roomId }, ({ exists }) => {
-    if (!exists) {
-      alert('Room does not exist!');
-      window.location.href = '/';
-    }
-  });
 
   // Initialize media and connection
   async function init() {
-    try {
-      localStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: currentFacing },
-        audio: true
-      });
-      document.getElementById('localVideo').srcObject = localStream;
-      updateConnectionStatus('Connected to media');
-      
-      // Join room after media is ready
-      const password = prompt('Enter room password:') || '';
-      socket.emit('join-room', { roomId, password });
-      
-      // Reset retry count on success
-      retryCount = 0;
-    } catch (err) {
-      console.error('Media error:', err);
-      updateConnectionStatus('Media error');
-      
-      if (retryCount < MAX_RETRIES) {
-        retryCount++;
-        setTimeout(init, 3000); // Retry after 3 seconds
-      } else {
-        alert('Could not access camera/microphone after several attempts');
-      }
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: currentFacing },
+      audio: true
+    });
+    document.getElementById('localVideo').srcObject = localStream;
+    
+    // Check room existence AFTER media access
+    const password = prompt('Enter room password:') || '';
+    if (!password) {
+      alert('Password is required!');
+      window.location.href = '/';
+      return;
+    }
+    
+    
+    retryCount = 0;
+  } catch (err) {
+    console.error('Media error:', err);
+    if (retryCount < MAX_RETRIES) {
+      retryCount++;
+      setTimeout(init, 3000);
+    } else {
+      alert('Could not access camera/microphone');
     }
   }
+}
 
   // WebRTC Peer Connection
   function createPeerConnection(userId) {
@@ -473,7 +468,7 @@ socket.on('receive-message', (message) => {
 });
 
 function updateMessageBadge() {
-  const badge = document.getElementById('messageBadge');
+  const badge = document.getElementById('notification-badge'); // Match ID
   if (unreadMessages > 0) {
     badge.style.display = 'flex';
     badge.textContent = unreadMessages > 9 ? '9+' : unreadMessages;
@@ -482,14 +477,7 @@ function updateMessageBadge() {
   }
 }
 
-// Reset counter when opening chat
-document.getElementById('chat-toggle').addEventListener('click', () => {
-  chatOpen = !chatOpen;
-  if (chatOpen) {
-    unreadMessages = 0;
-    updateMessageBadge();
-  }
-});
+
 
   document.getElementById('send-btn').addEventListener('click', sendMessage);
   document.getElementById('chat-input').addEventListener('keypress', (e) => {
@@ -662,16 +650,21 @@ socket.on('session-ended', () => {
       status.includes('Disconnected') ? 'rgba(220, 53, 69, 0.8)' : 'rgba(255, 193, 7, 0.8)';
   }
 
-  // Toggle chat visibility
-  document.getElementById('chat-toggle').addEventListener('click', () => {
-    chatOpen = !chatOpen;
-    document.getElementById('chat-container').style.display = chatOpen ? 'block' : 'none';
-    document.getElementById('chat-input-container').style.display = chatOpen ? 'flex' : 'none';
-    if (chatOpen) {
-      document.getElementById('chat-input').focus();
-      scrollToBottom();
-    }
-  });
+document.getElementById('chat-toggle').addEventListener('click', () => {
+  chatOpen = !chatOpen;
+
+  // Toggle visibility
+  document.getElementById('chat-container').style.display = chatOpen ? 'block' : 'none';
+  document.getElementById('chat-input-container').style.display = chatOpen ? 'flex' : 'none';
+
+  if (chatOpen) {
+    unreadMessages = 0;
+    updateMessageBadge();
+    document.getElementById('chat-input').focus();
+    scrollToBottom();
+  }
+});
+
 
   // Initialize everything
   init();

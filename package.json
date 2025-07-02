@@ -1,5 +1,5 @@
 {
-  "name": "love-room-app",
+  "name": "loveroom",
   "version": "1.0.0",
   "description": "A romantic web app for couples to share memories and moments.",
   "main": "server.js",
@@ -18,6 +18,6 @@
     "node": ">=16.x"
   },
   "keywords": ["love", "romantic", "couples", "memories"],
-  "author": "Your Name",
+  "author": "Honey",
   "license": "ISC"
 }

@@ -34,7 +34,7 @@ setInterval(() => {
       console.log(`Cleaned up empty room: ${roomId}`);
     }
   });
-}, 3600000); // Clean up hourly
+}, 300000); // 5 minutes
 
 io.on('connection', (socket) => {
   console.log(`New connection: ${socket.id}`);
@@ -48,24 +48,25 @@ io.on('connection', (socket) => {
     if (rooms.has(roomId)) {
       const room = rooms.get(roomId);
       // Room full check
-      if (rooms.has(roomId) && rooms.get(roomId).users.length >= 2) {
-    socket.emit('room-full');
-    return;
+      if (room.users.length >= 2) {
+        socket.emit('room-full');
+        return;
       }
-      // Password verification
+      // Password verification for all users
       if (room.password !== password) {
         socket.emit('invalid-password');
         return;
       }
     } else {
-      // Generate random 6-digit password for new room
-      const newPassword = Math.floor(100000 + Math.random() * 900000).toString();
+      // Create new room with provided password
+      if (!password) {
+        socket.emit('invalid-password');
+        return;
+      }
       rooms.set(roomId, {
-        password: newPassword,
+        password: password, // Use user-provided password
         users: []
       });
-      // Send password back to room creator
-      socket.emit('room-created', { password: newPassword });
     }
 
       socket.join(roomId);
