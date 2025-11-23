@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -7,161 +8,183 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const server = http.createServer(app);
 
-// Rate limiting middleware
+// Basic rate limiting (avoid abuse)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100 // limit each IP to 100 requests per windowMs
+  max: 200
 });
 app.use(limiter);
 
+// Static files
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve main page at root
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'loveroom.html'));
+});
+
+// Socket.IO
 const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  pingInterval: 25000, // keepalive
+  pingTimeout: 60000,
+  transports: ['websocket', 'polling']
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
-
+// roomId -> { password, users: [socketId, ...] }
 const rooms = new Map();
 
-// Room cleanup interval
+// Periodic cleanup (safety)
 setInterval(() => {
   rooms.forEach((room, roomId) => {
-    if (room.users.length === 0) {
-      // Room empty for too long - clean up
+    if (!room.users || room.users.length === 0) {
       rooms.delete(roomId);
-      console.log(`Cleaned up empty room: ${roomId}`);
+      console.log(`Cleaned empty room: ${roomId}`);
     }
   });
-}, 300000); // 5 minutes
+}, 5 * 60 * 1000);
+
+// Helper: handle leaving room (used on leave-room + disconnect)
+function handleLeave(socket, explicitRoomId) {
+  const roomId = explicitRoomId || socket.roomId;
+  if (!roomId) return;
+
+  const room = rooms.get(roomId);
+  if (!room) return;
+
+  room.users = room.users.filter(id => id !== socket.id);
+  socket.leave(roomId);
+
+  if (room.users.length === 0) {
+    rooms.delete(roomId);
+    console.log(`Room deleted (no users): ${roomId}`);
+  } else {
+    socket.to(roomId).emit('user-disconnected', { userId: socket.id });
+    console.log(`User ${socket.id} left room ${roomId}. Remaining: ${room.users.length}`);
+  }
+}
 
 io.on('connection', (socket) => {
-  console.log(`New connection: ${socket.id}`);
+  console.log(`New connection: ${socket.id}, transport=${socket.conn.transport.name}`);
 
-  socket.on('check-room', ({ roomId }, callback) => {
-    callback({ exists: rooms.has(roomId) });
+  // Optional health check
+  socket.on('keepalive', () => {
+    socket.emit('keepalive-ack');
   });
 
   socket.on('join-room', ({ roomId, password }) => {
-  try {
-    if (rooms.has(roomId)) {
-      const room = rooms.get(roomId);
-      // Room full check
-      if (room.users.length >= 2) {
-        socket.emit('room-full');
-        return;
-      }
-      // Password verification for all users
-      if (room.password !== password) {
+    try {
+      if (!roomId || !password) {
         socket.emit('invalid-password');
         return;
       }
-    } else {
-      // Create new room with provided password
-      if (!password) {
-        socket.emit('invalid-password');
-        return;
+
+      let room = rooms.get(roomId);
+
+      if (room) {
+        // Check password
+        if (room.password !== password) {
+          socket.emit('invalid-password');
+          return;
+        }
+        // Max 2 users
+        if (room.users.length >= 2) {
+          socket.emit('room-full');
+          return;
+        }
+      } else {
+        // Create new room
+        room = {
+          password,
+          users: []
+        };
+        rooms.set(roomId, room);
       }
-      rooms.set(roomId, {
-        password: password, // Use user-provided password
-        users: []
-      });
-    }
 
       socket.join(roomId);
       socket.roomId = roomId;
 
-      const room = rooms.get(roomId);
-      room.users.push(socket.id);
-
-      const otherUsers = room.users.filter(id => id !== socket.id);
-      if (otherUsers.length > 0) {
-        socket.to(roomId).emit('user-connected', { userId: socket.id });
-        socket.emit('existing-users', { users: otherUsers });
+      if (!room.users.includes(socket.id)) {
+        room.users.push(socket.id);
       }
 
-      console.log(`User ${socket.id} joined room ${roomId}`);
+      const otherUsers = room.users.filter(id => id !== socket.id);
+
+      // Send list of existing users to the new user
+      socket.emit('existing-users', { users: otherUsers });
+
+      // Notify others that a new user joined
+      socket.to(roomId).emit('user-connected', { userId: socket.id });
+
+      console.log(`User ${socket.id} joined room ${roomId}. Users: ${room.users.length}`);
     } catch (err) {
-      console.error('Join error:', err);
+      console.error('join-room error:', err);
     }
   });
 
   socket.on('leave-room', ({ roomId }) => {
-    if (roomId && rooms.has(roomId)) {
-      const room = rooms.get(roomId);
-      room.users = room.users.filter(id => id !== socket.id);
-      
-      if (room.users.length === 0) {
-        // Start countdown to delete empty room
-        setTimeout(() => {
-          if (rooms.get(roomId)?.users.length === 0) {
-            rooms.delete(roomId);
-          }
-        }, 5000);
-      } else {
-        socket.to(roomId).emit('user-disconnected', { userId: socket.id });
-      }
-    }
+    handleLeave(socket, roomId);
   });
 
+  // WebRTC signaling
   socket.on('sdp-offer', ({ offer, to }) => {
+    if (!to) return;
     socket.to(to).emit('sdp-offer', { offer, from: socket.id });
   });
 
   socket.on('sdp-answer', ({ answer, to }) => {
+    if (!to) return;
     socket.to(to).emit('sdp-answer', { answer, from: socket.id });
   });
 
   socket.on('ice-candidate', ({ candidate, to }) => {
+    if (!to || !candidate) return;
     socket.to(to).emit('ice-candidate', { candidate, from: socket.id });
   });
 
+  // Chat
   socket.on('send-message', ({ roomId, message }) => {
-    // Basic message sanitization
-    const sanitizedMessage = message.toString().substring(0, 500);
-    socket.to(roomId).emit('receive-message', sanitizedMessage);
+    const id = roomId || socket.roomId;
+    if (!id) return;
+    const sanitized = (message || '').toString().slice(0, 500);
+    socket.to(id).emit('receive-message', sanitized);
   });
 
-  socket.on('send-reaction', ({ roomId, reaction }) => {
-    if (['heart', 'kiss'].includes(reaction)) {
-      socket.to(roomId).emit('receive-reaction', reaction);
-    }
-  });
-
+  // Typing indicator
   socket.on('typing', ({ roomId, isTyping }) => {
-    socket.to(roomId).emit('typing', { isTyping });
+    const id = roomId || socket.roomId;
+    if (!id) return;
+    socket.to(id).emit('typing', { isTyping: !!isTyping });
   });
 
-  socket.on('end-session', ({ roomId }) => {
-  socket.to(roomId).emit('session-ended');
-  // Clean up room
-  rooms.delete(roomId);
-});
+  // Reactions (💓 / 💋)
+  socket.on('send-reaction', ({ roomId, reaction }) => {
+    const id = roomId || socket.roomId;
+    if (!id) return;
+    if (!['heart', 'kiss'].includes(reaction)) return;
+    socket.to(id).emit('receive-reaction', reaction);
+  });
 
-  socket.on('disconnect', () => {
-    const roomId = socket.roomId;
-    if (roomId && rooms.has(roomId)) {
-      const room = rooms.get(roomId);
-      room.users = room.users.filter(id => id !== socket.id);
-      
-      if (room.users.length === 0) {
-        // Start countdown to delete empty room
-        setTimeout(() => {
-          if (rooms.get(roomId)?.users.length === 0) {
-            rooms.delete(roomId);
-          }
-        }, 5000);
-      } else {
-        socket.to(roomId).emit('user-disconnected', { userId: socket.id });
-      }
-    }
-    console.log(`User disconnected: ${socket.id}`);
+  // End session for both
+  socket.on('end-session', ({ roomId }) => {
+    const id = roomId || socket.roomId;
+    if (!id) return;
+
+    socket.to(id).emit('session-ended');
+    rooms.delete(id);
+    console.log(`Session ended and room deleted: ${id}`);
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log(`Socket ${socket.id} disconnected: ${reason}`);
+    handleLeave(socket);
   });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Current rooms: ${rooms.size}`);
+  console.log(`LoveRoom server running on http://localhost:${PORT}`);
 });
